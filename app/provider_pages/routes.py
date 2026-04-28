@@ -39,8 +39,8 @@ def _render_provider(provider_key: str, **overrides):
         "prompts": prompts,
         "models": models,
         "active_tab": request.args.get("tab", "playground"),
-        "selected_prompt_id": None,
-        "selected_model_id": config.default_model_id,
+        "selected_prompt_id": request.args.get("prompt_id", type=int),
+        "selected_model_id": request.args.get("model_id", type=int) or config.default_model_id,
         "user_text": "",
         "response_text": "",
         "response_id": "",
@@ -214,6 +214,21 @@ def save_prompt(provider_key):
     db.session.add(prompt)
     db.session.commit()
     flash("Prompt saved.")
+    return redirect(url_for("provider.show", provider_key=provider_key, prompt_id=prompt.id))
+
+
+@provider_bp.post("/<provider_key>/prompts/<int:prompt_id>")
+def update_prompt(provider_key, prompt_id):
+    provider = get_provider(provider_key)
+    if provider is None:
+        return redirect(url_for("main.home"))
+
+    prompt = SavedPrompt.query.get_or_404(prompt_id)
+    prompt.title = request.form["title"].strip()
+    prompt.description = request.form.get("description", "").strip()
+    prompt.prompt_text = request.form["prompt_text"].strip()
+    db.session.commit()
+    flash("Prompt updated.")
     return redirect(url_for("provider.show", provider_key=provider_key, prompt_id=prompt.id))
 
 
