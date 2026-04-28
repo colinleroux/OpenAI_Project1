@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block title %}Provider Dashboard{% endblock %}
+{% block content %}
+<section class="mb-6">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <p class="text-sm font-medium text-emerald-700">Provider playground</p>
+      <h1 class="mt-1 text-3xl font-bold">Learn Python LLM APIs one provider at a time</h1>
+    </div>
+    <a href="/settings/" class="inline-flex items-center justify-center border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50">
+      Global settings
+    </a>
+  </div>
+</section>
+
+<section class="grid gap-4 sm:grid-cols-2">
+  {% for provider in providers %}
+    <a href="{{ url_for('provider.show', provider_key=provider.key) }}" class="block border border-zinc-200 bg-white p-5 shadow-sm hover:border-emerald-500">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-semibold">{{ provider.name }}</h2>
+          <p class="mt-2 text-sm leading-6 text-zinc-600">{{ provider.description }}</p>
+        </div>
+        <span class="border px-2 py-1 text-xs font-medium {% if provider.status == 'Ready' %}border-emerald-200 bg-emerald-50 text-emerald-800{% else %}border-zinc-200 bg-zinc-50 text-zinc-600{% endif %}">
+          {{ provider.status }}
+        </span>
+      </div>
+    </a>
+  {% endfor %}
+</section>
+
+<section class="mt-6 grid gap-4 sm:grid-cols-2">
+  <div class="border border-zinc-200 bg-white p-4">
+    <p class="text-sm text-zinc-500">Saved prompts</p>
+    <p class="mt-1 text-2xl font-semibold">{{ prompt_count }}</p>
+  </div>
+  <div class="border border-zinc-200 bg-white p-4">
+    <p class="text-sm text-zinc-500">Saved models</p>
+    <p class="mt-1 text-2xl font-semibold">{{ model_count }}</p>
+  </div>
+</section>
+{% endblock %}

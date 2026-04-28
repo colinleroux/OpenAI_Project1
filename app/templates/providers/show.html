@@ -1,0 +1,113 @@
+{% extends "layout.html" %}
+{% block title %}{{ provider.name }}{% endblock %}
+{% block content %}
+<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="text-sm font-medium text-emerald-700">{{ provider.status }} provider</p>
+    <h1 class="mt-1 text-3xl font-bold">{{ provider.name }}</h1>
+    <p class="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">{{ provider.description }}</p>
+  </div>
+  <a href="/" class="text-sm font-medium text-zinc-700 hover:text-zinc-950">Back to providers</a>
+</div>
+
+<div class="mb-6 flex gap-2 border-b border-zinc-200">
+  <a href="{{ url_for('provider.show', provider_key=provider.key, tab='playground') }}" class="px-4 py-2 text-sm font-medium {% if active_tab == 'playground' %}border-b-2 border-emerald-700 text-emerald-800{% else %}text-zinc-600{% endif %}">Playground</a>
+  <a href="{{ url_for('provider.show', provider_key=provider.key, tab='settings') }}" class="px-4 py-2 text-sm font-medium {% if active_tab == 'settings' %}border-b-2 border-emerald-700 text-emerald-800{% else %}text-zinc-600{% endif %}">Settings</a>
+</div>
+
+{% if active_tab == 'settings' %}
+  <section class="max-w-2xl border border-zinc-200 bg-white p-5">
+    <h2 class="text-xl font-semibold">{{ provider.name }} settings</h2>
+    <form method="post" action="{{ url_for('provider.update_settings', provider_key=provider.key) }}" class="mt-4 space-y-4">
+      <label class="block">
+        <span class="text-sm font-medium">Default model</span>
+        <select name="default_model_id" class="mt-1 w-full border border-zinc-300 px-3 py-2">
+          <option value="">No default</option>
+          {% for model in models %}
+            <option value="{{ model.id }}" {% if config.default_model_id == model.id %}selected{% endif %}>{{ model.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">Temperature</span>
+        <input type="number" step="0.1" min="0" max="2" name="temperature" value="{{ config.temperature }}" class="mt-1 w-full border border-zinc-300 px-3 py-2">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">Max output tokens</span>
+        <input type="number" min="1" name="max_output_tokens" value="{{ config.max_output_tokens or '' }}" placeholder="Leave blank for provider default" class="mt-1 w-full border border-zinc-300 px-3 py-2">
+      </label>
+      {% if provider.api_key_env %}
+        <p class="text-sm text-zinc-600">API key env var: <code>{{ provider.api_key_env }}</code></p>
+      {% endif %}
+      <button class="bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">Save settings</button>
+    </form>
+  </section>
+{% else %}
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+    <section class="border border-zinc-200 bg-white p-5">
+      <h2 class="text-xl font-semibold">Send a request</h2>
+      <form method="post" action="{{ url_for('provider.send', provider_key=provider.key) }}" class="mt-4 space-y-4">
+        <label class="block">
+          <span class="text-sm font-medium">Provider</span>
+          <select onchange="window.location.href='/providers/' + this.value" class="mt-1 w-full border border-zinc-300 px-3 py-2">
+            {% for item in providers %}
+              <option value="{{ item.key }}" {% if item.key == provider.key %}selected{% endif %}>{{ item.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Model</span>
+          <select name="model_id" required class="mt-1 w-full border border-zinc-300 px-3 py-2">
+            <option value="">Choose a model</option>
+            {% for model in models %}
+              <option value="{{ model.id }}" {% if selected_model_id == model.id %}selected{% endif %}>{{ model.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Saved prompt</span>
+          <select name="prompt_id" required class="mt-1 w-full border border-zinc-300 px-3 py-2">
+            <option value="">Choose a prompt</option>
+            {% for prompt in prompts %}
+              <option value="{{ prompt.id }}" {% if selected_prompt_id == prompt.id %}selected{% endif %}>{{ prompt.title }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Request text</span>
+          <textarea name="user_text" required rows="7" class="mt-1 w-full border border-zinc-300 px-3 py-2">{{ user_text }}</textarea>
+        </label>
+        <button class="bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">Send request</button>
+      </form>
+
+      <div class="mt-6">
+        <div class="mb-2 flex items-center justify-between">
+          <h3 class="font-semibold">Response</h3>
+          {% if response_id %}<span class="text-xs text-zinc-500">{{ response_id }}</span>{% endif %}
+        </div>
+        <textarea readonly rows="10" class="w-full border border-zinc-300 bg-zinc-50 px-3 py-2">{{ response_text }}</textarea>
+      </div>
+    </section>
+
+    <aside class="space-y-4">
+      <section class="border border-zinc-200 bg-white p-5">
+        <h2 class="text-lg font-semibold">Save prompt</h2>
+        <form method="post" action="{{ url_for('provider.save_prompt', provider_key=provider.key) }}" class="mt-4 space-y-3">
+          <input name="title" required placeholder="Title" class="w-full border border-zinc-300 px-3 py-2">
+          <input name="description" placeholder="Description" class="w-full border border-zinc-300 px-3 py-2">
+          <textarea name="prompt_text" required rows="5" placeholder="Prompt text used as instructions" class="w-full border border-zinc-300 px-3 py-2"></textarea>
+          <button class="border border-emerald-700 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">Save for later</button>
+        </form>
+      </section>
+      <section class="border border-zinc-200 bg-white p-5">
+        <h2 class="text-lg font-semibold">Readiness</h2>
+        <dl class="mt-3 space-y-2 text-sm">
+          <div class="flex justify-between gap-3"><dt class="text-zinc-600">Prompts</dt><dd class="font-medium">{{ prompts|length }}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-zinc-600">Models</dt><dd class="font-medium">{{ models|length }}</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-zinc-600">Provider</dt><dd class="font-medium">{{ provider.status }}</dd></div>
+        </dl>
+      </section>
+    </aside>
+  </div>
+{% endif %}
+{% endblock %}
