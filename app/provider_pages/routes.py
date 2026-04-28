@@ -1,9 +1,10 @@
-from flask import flash, redirect, render_template, request, url_for
+from flask import current_app, flash, redirect, render_template, request, url_for
 
 from . import provider_bp
 from ..extensions import db
 from ..models import ProviderConfig, SavedModel, SavedPrompt
 from ..providers import get_provider, list_providers
+from ..services.attachments import save_request_attachments
 from ..services.llm import LlmRequest, ProviderNotReadyError, send_llm_request
 
 
@@ -87,6 +88,15 @@ def send(provider_key):
         provider_key=provider_key,
     ).first()
     user_text = request.form.get("user_text", "").strip()
+    include_files = request.form.get("include_files") == "on"
+    attachments = ()
+    if include_files:
+        attachments = tuple(
+            save_request_attachments(
+                request.files.getlist("attachments"),
+                current_app.config["UPLOAD_FOLDER"],
+            )
+        )
 
     if not prompt or not model or not user_text:
         flash("Choose a prompt, choose a model, and enter request text before sending.")
@@ -103,6 +113,7 @@ def send(provider_key):
                 user_text=user_text,
                 temperature=config.temperature,
                 max_output_tokens=config.max_output_tokens,
+                attachments=attachments,
             )
         )
         response_text = response.text

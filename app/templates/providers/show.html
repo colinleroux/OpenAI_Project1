@@ -46,7 +46,7 @@
   <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
     <section class="border border-zinc-200 bg-white p-5">
       <h2 class="text-xl font-semibold">Send a request</h2>
-      <form method="post" action="{{ url_for('provider.send', provider_key=provider.key) }}" class="mt-4 space-y-4">
+      <form method="post" action="{{ url_for('provider.send', provider_key=provider.key) }}" enctype="multipart/form-data" class="mt-4 space-y-4">
         <label class="block">
           <span class="text-sm font-medium">Provider</span>
           <select onchange="window.location.href='/providers/' + this.value" class="mt-1 w-full border border-zinc-300 px-3 py-2">
@@ -77,6 +77,16 @@
           <span class="text-sm font-medium">Request text</span>
           <textarea name="user_text" required rows="7" class="mt-1 w-full border border-zinc-300 px-3 py-2">{{ user_text }}</textarea>
         </label>
+        <div x-data="{ includeFiles: false }" class="space-y-3 border border-zinc-200 bg-zinc-50 p-4">
+          <label class="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" name="include_files" x-model="includeFiles" class="h-4 w-4 border-zinc-300">
+            Include document with request
+          </label>
+          <div x-show="includeFiles" x-transition>
+            <input type="file" name="attachments" multiple accept=".txt,.md,.csv,.json,.py,.html,.css,.js,.docx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.webm,.ogg" class="w-full border border-zinc-300 bg-white px-3 py-2 text-sm">
+            <p class="mt-2 text-xs leading-5 text-zinc-600">Supported now: text, .docx text extraction, PDFs, and images. Audio files can be selected but will be reported as a planned next step.</p>
+          </div>
+        </div>
         <button class="bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">Send request</button>
       </form>
 

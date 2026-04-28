@@ -6,6 +6,7 @@ This is a small no-auth Flask scaffold for learning Python, the OpenAI Python li
 - Provider pages for OpenAI, Ollama, Gemini, and Claude
 - A provider service layer, with OpenAI wired first and the others stubbed
 - Global prompt and provider-scoped model libraries stored in SQLite
+- Playground file attachments for text, `.docx`, PDFs, and images
 - SQLite by default (`instance/app.db`)
 - Docker Compose support (`web` + `nginx`)
 - Tailwind + Vite + Alpine frontend pipeline
@@ -52,6 +53,8 @@ python run.py
 `init-db` creates tables and seeds one starter prompt plus one starter OpenAI model.
 
 Saved models belong to a provider, so the OpenAI playground only offers OpenAI models, Ollama only offers Ollama models, and so on.
+
+The OpenAI playground can include uploaded files with a request. Text files and `.docx` files are extracted locally into text context; PDFs and images are uploaded to OpenAI and attached to the Responses API request. Audio files are listed in the UI as a planned next step.
 
 ## Structure
 
