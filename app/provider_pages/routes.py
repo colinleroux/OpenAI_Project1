@@ -25,7 +25,11 @@ def _render_provider(provider_key: str, **overrides):
 
     config = _get_or_create_config(provider_key)
     prompts = SavedPrompt.query.order_by(SavedPrompt.title.asc()).all()
-    models = SavedModel.query.order_by(SavedModel.name.asc()).all()
+    models = SavedModel.query.filter_by(provider_key=provider_key).order_by(SavedModel.name.asc()).all()
+    if config.default_model and config.default_model.provider_key != provider_key:
+        config.default_model_id = None
+        db.session.commit()
+
     context = {
         "provider": provider,
         "providers": list_providers(),
@@ -55,7 +59,14 @@ def update_settings(provider_key):
         return redirect(url_for("main.home"))
 
     config = _get_or_create_config(provider_key)
-    config.default_model_id = request.form.get("default_model_id", type=int) or None
+    default_model_id = request.form.get("default_model_id", type=int) or None
+    if default_model_id:
+        model = SavedModel.query.filter_by(id=default_model_id, provider_key=provider_key).first()
+        if model is None:
+            flash(f"Choose a {provider.name} model for {provider.name} settings.")
+            return redirect(url_for("provider.show", provider_key=provider_key, tab="settings"))
+
+    config.default_model_id = default_model_id
     config.temperature = request.form.get("temperature", type=float) or 1.0
     config.max_output_tokens = request.form.get("max_output_tokens", type=int) or None
     db.session.commit()
@@ -71,7 +82,10 @@ def send(provider_key):
 
     config = _get_or_create_config(provider_key)
     prompt = SavedPrompt.query.get(request.form.get("prompt_id", type=int))
-    model = SavedModel.query.get(request.form.get("model_id", type=int))
+    model = SavedModel.query.filter_by(
+        id=request.form.get("model_id", type=int),
+        provider_key=provider_key,
+    ).first()
     user_text = request.form.get("user_text", "").strip()
 
     if not prompt or not model or not user_text:

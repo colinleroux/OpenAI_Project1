@@ -18,11 +18,16 @@ class SavedPrompt(db.Model):
 
 class SavedModel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), unique=True, nullable=False)
+    provider_key = db.Column(db.String(40), nullable=False, default="openai")
+    name = db.Column(db.String(120), nullable=False)
     description = db.Column(db.String(255), nullable=True)
 
+    __table_args__ = (
+        db.UniqueConstraint("provider_key", "name", name="uq_saved_model_provider_name"),
+    )
+
     def __repr__(self):
-        return f"<SavedModel {self.name!r}>"
+        return f"<SavedModel {self.provider_key!r}:{self.name!r}>"
 
 
 class ProviderConfig(db.Model):

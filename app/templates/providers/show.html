@@ -58,7 +58,7 @@
         <label class="block">
           <span class="text-sm font-medium">Model</span>
           <select name="model_id" required class="mt-1 w-full border border-zinc-300 px-3 py-2">
-            <option value="">Choose a model</option>
+            <option value="">Choose a {{ provider.name }} model</option>
             {% for model in models %}
               <option value="{{ model.id }}" {% if selected_model_id == model.id %}selected{% endif %}>{{ model.name }}</option>
             {% endfor %}
