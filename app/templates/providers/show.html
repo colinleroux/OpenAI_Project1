@@ -13,6 +13,7 @@
 <div class="mb-6 flex gap-2 border-b border-zinc-200">
   <a href="{{ url_for('provider.show', provider_key=provider.key, tab='playground') }}" class="px-4 py-2 text-sm font-medium {% if active_tab == 'playground' %}border-b-2 border-emerald-700 text-emerald-800{% else %}text-zinc-600{% endif %}">Playground</a>
   <a href="{{ url_for('provider.show', provider_key=provider.key, tab='settings') }}" class="px-4 py-2 text-sm font-medium {% if active_tab == 'settings' %}border-b-2 border-emerald-700 text-emerald-800{% else %}text-zinc-600{% endif %}">Settings</a>
+  <a href="{{ url_for('provider.show', provider_key=provider.key, tab='logs') }}" class="px-4 py-2 text-sm font-medium {% if active_tab == 'logs' %}border-b-2 border-emerald-700 text-emerald-800{% else %}text-zinc-600{% endif %}">View logs</a>
 </div>
 
 {% if active_tab == 'settings' %}
@@ -41,6 +42,49 @@
       {% endif %}
       <button class="bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">Save settings</button>
     </form>
+  </section>
+{% elif active_tab == 'logs' %}
+  <section class="border border-zinc-200 bg-white p-5">
+    <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 class="text-xl font-semibold">Request logs</h2>
+        <p class="mt-1 text-sm text-zinc-600">Latest 50 {{ provider.name }} measurements and requests.</p>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-left text-sm">
+        <thead class="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+          <tr>
+            <th class="py-2 pr-4 font-medium">Time</th>
+            <th class="py-2 pr-4 font-medium">Model</th>
+            <th class="py-2 pr-4 font-medium">Prompt</th>
+            <th class="py-2 pr-4 font-medium">Estimate</th>
+            <th class="py-2 pr-4 font-medium">Actual in</th>
+            <th class="py-2 pr-4 font-medium">Out</th>
+            <th class="py-2 pr-4 font-medium">Total</th>
+            <th class="py-2 pr-4 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-zinc-100">
+          {% for log in logs %}
+            <tr>
+              <td class="py-3 pr-4 whitespace-nowrap">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td class="py-3 pr-4">{{ log.model_name }}</td>
+              <td class="py-3 pr-4">{{ log.prompt_title or 'Prompt removed' }}</td>
+              <td class="py-3 pr-4">{{ log.estimated_input_tokens if log.estimated_input_tokens is not none else '-' }}</td>
+              <td class="py-3 pr-4">{{ log.actual_input_tokens if log.actual_input_tokens is not none else '-' }}</td>
+              <td class="py-3 pr-4">{{ log.actual_output_tokens if log.actual_output_tokens is not none else '-' }}</td>
+              <td class="py-3 pr-4">{{ log.actual_total_tokens if log.actual_total_tokens is not none else '-' }}</td>
+              <td class="py-3 pr-4">{{ log.status }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td colspan="8" class="py-6 text-center text-zinc-600">No logs yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 {% else %}
   <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
@@ -87,7 +131,11 @@
             <p class="mt-2 text-xs leading-5 text-zinc-600">Supported now: text, .docx text extraction, PDFs, and images. Audio files can be selected but will be reported as a planned next step.</p>
           </div>
         </div>
-        <button class="bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">Send request</button>
+        <label class="flex items-center gap-2 text-sm font-medium">
+          <input type="checkbox" name="measure_load" class="h-4 w-4 border-zinc-300">
+          Measure load before send
+        </label>
+        <button name="action" value="send" class="bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">Send request</button>
       </form>
 
       <div class="mt-6">
@@ -119,5 +167,39 @@
       </section>
     </aside>
   </div>
+
+  {% if estimated_input_tokens is not none %}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 p-4">
+      <div class="w-full max-w-lg border border-zinc-200 bg-white p-5 shadow-xl">
+        <h2 class="text-xl font-semibold">Confirm request</h2>
+        <p class="mt-2 text-sm text-zinc-600">The measured input load for this request is ready.</p>
+        <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div class="border border-zinc-200 p-3">
+            <dt class="text-zinc-500">Input tokens</dt>
+            <dd class="mt-1 text-2xl font-semibold">{{ estimated_input_tokens }}</dd>
+          </div>
+          <div class="border border-zinc-200 p-3">
+            <dt class="text-zinc-500">Max output</dt>
+            <dd class="mt-1 text-2xl font-semibold">{{ config.max_output_tokens or 'Default' }}</dd>
+          </div>
+        </dl>
+        {% if config.max_output_tokens %}
+          <p class="mt-3 text-sm text-zinc-600">Potential upper bound: {{ estimated_input_tokens + config.max_output_tokens }} tokens.</p>
+        {% endif %}
+        <form method="post" action="{{ url_for('provider.send', provider_key=provider.key) }}" enctype="multipart/form-data" class="mt-5 flex flex-wrap gap-2">
+          <input type="hidden" name="prompt_id" value="{{ selected_prompt_id }}">
+          <input type="hidden" name="model_id" value="{{ selected_model_id }}">
+          <input type="hidden" name="user_text" value="{{ user_text }}">
+          <input type="hidden" name="measure_load" value="on">
+          <input type="hidden" name="pending_log_id" value="{{ pending_log_id }}">
+          {% for path in pending_attachment_paths %}
+            <input type="hidden" name="attachment_paths" value="{{ path }}">
+          {% endfor %}
+          <button name="action" value="confirm_send" class="bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">Confirm send</button>
+          <a href="{{ url_for('provider.show', provider_key=provider.key) }}" class="border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Cancel</a>
+        </form>
+      </div>
+    </div>
+  {% endif %}
 {% endif %}
 {% endblock %}

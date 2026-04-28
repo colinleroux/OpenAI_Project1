@@ -2,10 +2,10 @@ from flask import current_app, flash, redirect, render_template, request, url_fo
 
 from . import provider_bp
 from ..extensions import db
-from ..models import ProviderConfig, SavedModel, SavedPrompt
+from ..models import ProviderConfig, RequestLog, SavedModel, SavedPrompt
 from ..providers import get_provider, list_providers
-from ..services.attachments import save_request_attachments
-from ..services.llm import LlmRequest, ProviderNotReadyError, send_llm_request
+from ..services.attachments import load_saved_attachments, save_request_attachments
+from ..services.llm import LlmRequest, ProviderNotReadyError, count_input_tokens, send_llm_request
 
 
 def _get_or_create_config(provider_key: str):
@@ -27,6 +27,7 @@ def _render_provider(provider_key: str, **overrides):
     config = _get_or_create_config(provider_key)
     prompts = SavedPrompt.query.order_by(SavedPrompt.title.asc()).all()
     models = SavedModel.query.filter_by(provider_key=provider_key).order_by(SavedModel.name.asc()).all()
+    logs = RequestLog.query.filter_by(provider_key=provider_key).order_by(RequestLog.created_at.desc()).limit(50).all()
     if config.default_model and config.default_model.provider_key != provider_key:
         config.default_model_id = None
         db.session.commit()
@@ -43,6 +44,10 @@ def _render_provider(provider_key: str, **overrides):
         "user_text": "",
         "response_text": "",
         "response_id": "",
+        "estimated_input_tokens": None,
+        "pending_log_id": None,
+        "pending_attachment_paths": [],
+        "logs": logs,
     }
     context.update(overrides)
     return render_template("providers/show.html", **context)
@@ -89,38 +94,97 @@ def send(provider_key):
     ).first()
     user_text = request.form.get("user_text", "").strip()
     include_files = request.form.get("include_files") == "on"
-    attachments = ()
-    if include_files:
+    attachment_paths = request.form.getlist("attachment_paths")
+    if attachment_paths:
+        attachments = tuple(load_saved_attachments(attachment_paths, current_app.config["UPLOAD_FOLDER"]))
+    elif include_files:
         attachments = tuple(
-            save_request_attachments(
-                request.files.getlist("attachments"),
-                current_app.config["UPLOAD_FOLDER"],
-            )
+            save_request_attachments(request.files.getlist("attachments"), current_app.config["UPLOAD_FOLDER"])
         )
+    else:
+        attachments = ()
 
     if not prompt or not model or not user_text:
         flash("Choose a prompt, choose a model, and enter request text before sending.")
         return redirect(url_for("provider.show", provider_key=provider_key))
 
+    llm_request = LlmRequest(
+        provider_key=provider_key,
+        model_name=model.name,
+        prompt_text=prompt.prompt_text,
+        user_text=user_text,
+        temperature=config.temperature,
+        max_output_tokens=config.max_output_tokens,
+        attachments=attachments,
+    )
+    action = request.form.get("action", "send")
+    measure_before_send = request.form.get("measure_load") == "on"
+
+    if measure_before_send and action != "confirm_send":
+        try:
+            estimated_input_tokens = count_input_tokens(llm_request)
+            log = _create_request_log(
+                provider_key=provider_key,
+                model=model,
+                prompt=prompt,
+                user_text=user_text,
+                attachments=attachments,
+                estimated_input_tokens=estimated_input_tokens,
+                status="measured",
+            )
+            db.session.add(log)
+            db.session.commit()
+            return _render_provider(
+                provider_key,
+                selected_prompt_id=prompt.id,
+                selected_model_id=model.id,
+                user_text=user_text,
+                estimated_input_tokens=estimated_input_tokens,
+                pending_log_id=log.id,
+                pending_attachment_paths=[str(attachment.path) for attachment in attachments],
+            )
+        except ProviderNotReadyError as exc:
+            flash(str(exc))
+            return _render_provider(
+                provider_key,
+                selected_prompt_id=prompt.id,
+                selected_model_id=model.id,
+                user_text=user_text,
+            )
+
     response_text = ""
     response_id = ""
-    try:
-        response = send_llm_request(
-            LlmRequest(
-                provider_key=provider_key,
-                model_name=model.name,
-                prompt_text=prompt.prompt_text,
-                user_text=user_text,
-                temperature=config.temperature,
-                max_output_tokens=config.max_output_tokens,
-                attachments=attachments,
-            )
+    log = None
+    pending_log_id = request.form.get("pending_log_id", type=int)
+    if pending_log_id:
+        log = RequestLog.query.filter_by(id=pending_log_id, provider_key=provider_key).first()
+    if log is None:
+        log = _create_request_log(
+            provider_key=provider_key,
+            model=model,
+            prompt=prompt,
+            user_text=user_text,
+            attachments=attachments,
+            estimated_input_tokens=None,
+            status="sending",
         )
+        db.session.add(log)
+        db.session.commit()
+
+    try:
+        response = send_llm_request(llm_request)
         response_text = response.text
         response_id = response.raw_id or ""
+        _update_log_from_response(log, response)
     except ProviderNotReadyError as exc:
+        log.status = "failed"
+        log.error_message = str(exc)
+        db.session.commit()
         flash(str(exc))
     except Exception as exc:
+        log.status = "failed"
+        log.error_message = str(exc)
+        db.session.commit()
         flash(f"Provider request failed: {exc}")
 
     return _render_provider(
@@ -148,3 +212,40 @@ def save_prompt(provider_key):
     db.session.commit()
     flash("Prompt saved.")
     return redirect(url_for("provider.show", provider_key=provider_key, prompt_id=prompt.id))
+
+
+def _create_request_log(
+    provider_key: str,
+    model: SavedModel,
+    prompt: SavedPrompt,
+    user_text: str,
+    attachments: tuple,
+    estimated_input_tokens: int | None,
+    status: str,
+) -> RequestLog:
+    return RequestLog(
+        provider_key=provider_key,
+        model_name=model.name,
+        prompt_id=prompt.id,
+        prompt_title=prompt.title,
+        request_text=user_text,
+        included_files=bool(attachments),
+        attachment_names=", ".join(attachment.filename for attachment in attachments) or None,
+        estimated_input_tokens=estimated_input_tokens,
+        status=status,
+    )
+
+
+def _update_log_from_response(log: RequestLog, response):
+    usage = response.usage or {}
+    input_details = usage.get("input_tokens_details") or {}
+    output_details = usage.get("output_tokens_details") or {}
+
+    log.status = "completed"
+    log.response_id = response.raw_id
+    log.actual_input_tokens = usage.get("input_tokens")
+    log.actual_output_tokens = usage.get("output_tokens")
+    log.actual_total_tokens = usage.get("total_tokens")
+    log.cached_tokens = input_details.get("cached_tokens")
+    log.reasoning_tokens = output_details.get("reasoning_tokens")
+    db.session.commit()

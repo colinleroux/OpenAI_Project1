@@ -50,6 +50,28 @@ def save_request_attachments(files: list[FileStorage], upload_dir: str) -> list[
     return attachments
 
 
+def load_saved_attachments(paths: list[str], upload_dir: str) -> list[RequestAttachment]:
+    upload_root = Path(upload_dir).resolve()
+    attachments = []
+    for raw_path in paths:
+        path = Path(raw_path).resolve()
+        if not path.exists() or not path.is_file():
+            continue
+        if upload_root not in path.parents and path.parent != upload_root:
+            continue
+
+        kind = _classify(path)
+        attachments.append(
+            RequestAttachment(
+                filename=path.name,
+                path=path,
+                kind=kind,
+                extracted_text=_extract_text(path, kind),
+            )
+        )
+    return attachments
+
+
 def _unique_path(path: Path) -> Path:
     if not path.exists():
         return path
