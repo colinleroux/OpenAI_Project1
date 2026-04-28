@@ -40,6 +40,8 @@ def _render_provider(provider_key: str, **overrides):
             id=request_text_id,
             provider_key=provider_key,
         ).first()
+    selected_prompt_id = request.args.get("prompt_id", type=int)
+    selected_prompt = SavedPrompt.query.get(selected_prompt_id) if selected_prompt_id else None
     if config.default_model and config.default_model.provider_key != provider_key:
         config.default_model_id = None
         db.session.commit()
@@ -51,7 +53,8 @@ def _render_provider(provider_key: str, **overrides):
         "prompts": prompts,
         "models": models,
         "active_tab": request.args.get("tab", "playground"),
-        "selected_prompt_id": request.args.get("prompt_id", type=int),
+        "selected_prompt_id": selected_prompt_id,
+        "selected_prompt": selected_prompt,
         "selected_model_id": request.args.get("model_id", type=int) or config.default_model_id,
         "user_text": selected_request_text.request_text if selected_request_text else request.args.get("user_text", ""),
         "response_text": "",

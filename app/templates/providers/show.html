@@ -128,11 +128,22 @@
       {% endfor %}
     }
   </script>
+  <script type="application/json" id="playground-state">
+    {
+      "selectedPromptId": {{ (selected_prompt_id|string if selected_prompt_id else '')|tojson }},
+      "userText": {{ user_text|tojson }}
+    }
+  </script>
   <div
     x-data="{
       prompts: JSON.parse(document.getElementById('prompt-data').textContent),
-      selectedPromptId: '{{ selected_prompt_id or '' }}',
-      userText: {{ user_text|tojson }},
+      state: JSON.parse(document.getElementById('playground-state').textContent),
+      selectedPromptId: '',
+      userText: '',
+      init() {
+        this.selectedPromptId = this.state.selectedPromptId;
+        this.userText = this.state.userText;
+      },
       get selectedPrompt() { return this.prompts[this.selectedPromptId] || null }
     }"
   >
@@ -168,17 +179,17 @@
               <option value="{{ prompt.id }}" {% if selected_prompt_id == prompt.id %}selected{% endif %}>{{ prompt.title }}</option>
             {% endfor %}
           </select>
-          <div class="mt-3 border border-zinc-200 bg-zinc-50 p-4" x-show="selectedPrompt" x-transition>
+          <div class="mt-3 border border-zinc-200 bg-zinc-50 p-4" x-show="selectedPrompt" x-transition {% if not selected_prompt %}style="display: none;"{% endif %}>
             <div class="flex items-start justify-between gap-3">
               <div>
-                <h3 class="font-semibold" x-text="selectedPrompt?.title"></h3>
-                <p class="mt-1 text-sm text-zinc-600" x-text="selectedPrompt?.description || 'No description.'"></p>
+                <h3 class="font-semibold" x-text="selectedPrompt?.title">{{ selected_prompt.title if selected_prompt else '' }}</h3>
+                <p class="mt-1 text-sm text-zinc-600" x-text="selectedPrompt?.description || 'No description.'">{{ selected_prompt.description if selected_prompt and selected_prompt.description else 'No description.' }}</p>
               </div>
               <button type="button" @click="$dispatch('open-edit-prompt', { id: selectedPromptId })" class="border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Edit</button>
             </div>
-            <pre class="mt-3 max-h-48 overflow-auto whitespace-pre-wrap border border-zinc-200 bg-white p-3 text-sm leading-6 text-zinc-800" x-text="selectedPrompt?.prompt_text"></pre>
+            <pre class="mt-3 max-h-48 overflow-auto whitespace-pre-wrap border border-zinc-200 bg-white p-3 text-sm leading-6 text-zinc-800" x-text="selectedPrompt?.prompt_text">{{ selected_prompt.prompt_text if selected_prompt else '' }}</pre>
           </div>
-          <p class="mt-2 text-sm text-zinc-600" x-show="!selectedPrompt">Choose a saved prompt to preview the instructions that will be sent.</p>
+          <p class="mt-2 text-sm text-zinc-600" x-show="!selectedPrompt" {% if selected_prompt %}style="display: none;"{% endif %}>Choose a saved prompt to preview the instructions that will be sent.</p>
         </div>
         <div class="block">
           <div class="flex items-center justify-between gap-3">
@@ -204,7 +215,7 @@
         <button name="action" value="send" class="bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">Send request</button>
       </form>
 
-      <div class="mt-6" x-data="{ copied: false, responseText: {{ response_text|tojson }} }">
+      <div class="mt-6">
         <div class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 class="font-semibold">Response</h3>
@@ -213,32 +224,23 @@
           <div class="flex gap-2">
             <button
               type="button"
+              id="copy-response-button"
               class="border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!responseText"
-              @click="navigator.clipboard.writeText(responseText); copied = true; setTimeout(() => copied = false, 1500)"
+              {% if not response_text %}disabled{% endif %}
             >
-              <span x-show="!copied">Copy</span>
-              <span x-show="copied">Copied</span>
+              Copy
             </button>
             <button
               type="button"
+              id="save-response-button"
               class="border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!responseText"
-              @click="
-                const blob = new Blob([responseText], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = 'llm-response.txt';
-                link.click();
-                URL.revokeObjectURL(url);
-              "
+              {% if not response_text %}disabled{% endif %}
             >
               Save as .txt
             </button>
           </div>
         </div>
-        <div class="min-h-48 whitespace-pre-wrap border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-900">{{ response_text or 'No response yet.' }}</div>
+        <div id="response-content" class="min-h-48 whitespace-pre-wrap border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-900">{{ response_text or 'No response yet.' }}</div>
         {% if actual_usage %}
           <div class="mt-3 border border-zinc-200 bg-white p-4">
             <h4 class="font-semibold">Actual token usage</h4>
@@ -389,5 +391,58 @@
     </div>
   {% endif %}
   </div>
+
+  <script>
+    (() => {
+      const responseText = {{ response_text|tojson }};
+      const copyButton = document.getElementById("copy-response-button");
+      const saveButton = document.getElementById("save-response-button");
+
+      async function copyResponse() {
+        if (!responseText) return;
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(responseText);
+          } else {
+            const textarea = document.createElement("textarea");
+            textarea.value = responseText;
+            textarea.setAttribute("readonly", "");
+            textarea.style.position = "fixed";
+            textarea.style.left = "-9999px";
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            textarea.remove();
+          }
+          const originalText = copyButton.textContent;
+          copyButton.textContent = "Copied";
+          window.setTimeout(() => {
+            copyButton.textContent = originalText;
+          }, 1500);
+        } catch (error) {
+          copyButton.textContent = "Copy failed";
+          window.setTimeout(() => {
+            copyButton.textContent = "Copy";
+          }, 1500);
+        }
+      }
+
+      function saveResponse() {
+        if (!responseText) return;
+        const blob = new Blob([responseText], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "llm-response.txt";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      copyButton?.addEventListener("click", copyResponse);
+      saveButton?.addEventListener("click", saveResponse);
+    })();
+  </script>
 {% endif %}
 {% endblock %}
