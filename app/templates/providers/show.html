@@ -87,9 +87,23 @@
     </div>
   </section>
 {% else %}
+  <script type="application/json" id="prompt-data">
+    {
+      {% for prompt in prompts %}
+        "{{ prompt.id }}": {
+          "title": {{ prompt.title|tojson }},
+          "description": {{ (prompt.description or '')|tojson }},
+          "prompt_text": {{ prompt.prompt_text|tojson }}
+        }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    }
+  </script>
   <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
     <section class="border border-zinc-200 bg-white p-5">
-      <h2 class="text-xl font-semibold">Send a request</h2>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 class="text-xl font-semibold">Send a request</h2>
+        <button type="button" x-data @click="$dispatch('open-add-prompt')" class="border border-emerald-700 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">Add prompt</button>
+      </div>
       <form method="post" action="{{ url_for('provider.send', provider_key=provider.key) }}" enctype="multipart/form-data" class="mt-4 space-y-4">
         <label class="block">
           <span class="text-sm font-medium">Provider</span>
@@ -108,15 +122,32 @@
             {% endfor %}
           </select>
         </label>
-        <label class="block">
+        <div
+          class="block"
+          x-data="{
+            prompts: JSON.parse(document.getElementById('prompt-data').textContent),
+            selectedPromptId: '{{ selected_prompt_id or '' }}',
+            get selectedPrompt() { return this.prompts[this.selectedPromptId] || null }
+          }"
+        >
           <span class="text-sm font-medium">Saved prompt</span>
-          <select name="prompt_id" required class="mt-1 w-full border border-zinc-300 px-3 py-2">
+          <select name="prompt_id" required x-model="selectedPromptId" class="mt-1 w-full border border-zinc-300 px-3 py-2">
             <option value="">Choose a prompt</option>
             {% for prompt in prompts %}
               <option value="{{ prompt.id }}" {% if selected_prompt_id == prompt.id %}selected{% endif %}>{{ prompt.title }}</option>
             {% endfor %}
           </select>
-        </label>
+          <div class="mt-3 border border-zinc-200 bg-zinc-50 p-4" x-show="selectedPrompt" x-transition>
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 class="font-semibold" x-text="selectedPrompt?.title"></h3>
+                <p class="mt-1 text-sm text-zinc-600" x-text="selectedPrompt?.description || 'No description.'"></p>
+              </div>
+            </div>
+            <pre class="mt-3 max-h-48 overflow-auto whitespace-pre-wrap border border-zinc-200 bg-white p-3 text-sm leading-6 text-zinc-800" x-text="selectedPrompt?.prompt_text"></pre>
+          </div>
+          <p class="mt-2 text-sm text-zinc-600" x-show="!selectedPrompt">Choose a saved prompt to preview the instructions that will be sent.</p>
+        </div>
         <label class="block">
           <span class="text-sm font-medium">Request text</span>
           <textarea name="user_text" required rows="7" class="mt-1 w-full border border-zinc-300 px-3 py-2">{{ user_text }}</textarea>
@@ -138,25 +169,74 @@
         <button name="action" value="send" class="bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">Send request</button>
       </form>
 
-      <div class="mt-6">
-        <div class="mb-2 flex items-center justify-between">
-          <h3 class="font-semibold">Response</h3>
-          {% if response_id %}<span class="text-xs text-zinc-500">{{ response_id }}</span>{% endif %}
+      <div class="mt-6" x-data="{ copied: false, responseText: {{ response_text|tojson }} }">
+        <div class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 class="font-semibold">Response</h3>
+            {% if response_id %}<span class="text-xs text-zinc-500">{{ response_id }}</span>{% endif %}
+          </div>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="!responseText"
+              @click="navigator.clipboard.writeText(responseText); copied = true; setTimeout(() => copied = false, 1500)"
+            >
+              <span x-show="!copied">Copy</span>
+              <span x-show="copied">Copied</span>
+            </button>
+            <button
+              type="button"
+              class="border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="!responseText"
+              @click="
+                const blob = new Blob([responseText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'llm-response.txt';
+                link.click();
+                URL.revokeObjectURL(url);
+              "
+            >
+              Save as .txt
+            </button>
+          </div>
         </div>
-        <textarea readonly rows="10" class="w-full border border-zinc-300 bg-zinc-50 px-3 py-2">{{ response_text }}</textarea>
+        <div class="min-h-48 whitespace-pre-wrap border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-900">{{ response_text or 'No response yet.' }}</div>
+        {% if actual_usage %}
+          <div class="mt-3 border border-zinc-200 bg-white p-4">
+            <h4 class="font-semibold">Actual token usage</h4>
+            <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+              <div class="border border-zinc-200 p-3">
+                <dt class="text-zinc-500">Input</dt>
+                <dd class="mt-1 text-xl font-semibold">{{ actual_usage.get('input_tokens', '-') }}</dd>
+              </div>
+              <div class="border border-zinc-200 p-3">
+                <dt class="text-zinc-500">Output</dt>
+                <dd class="mt-1 text-xl font-semibold">{{ actual_usage.get('output_tokens', '-') }}</dd>
+              </div>
+              <div class="border border-zinc-200 p-3">
+                <dt class="text-zinc-500">Total</dt>
+                <dd class="mt-1 text-xl font-semibold">{{ actual_usage.get('total_tokens', '-') }}</dd>
+              </div>
+            </dl>
+            <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div class="border border-zinc-100 bg-zinc-50 p-3">
+                <dt class="text-zinc-500">Cached input</dt>
+                <dd class="mt-1 font-semibold">{{ (actual_usage.get('input_tokens_details') or {}).get('cached_tokens', '-') }}</dd>
+              </div>
+              <div class="border border-zinc-100 bg-zinc-50 p-3">
+                <dt class="text-zinc-500">Reasoning output</dt>
+                <dd class="mt-1 font-semibold">{{ (actual_usage.get('output_tokens_details') or {}).get('reasoning_tokens', '-') }}</dd>
+              </div>
+            </dl>
+          </div>
+        {% endif %}
       </div>
     </section>
 
     <aside class="space-y-4">
-      <section class="border border-zinc-200 bg-white p-5">
-        <h2 class="text-lg font-semibold">Save prompt</h2>
-        <form method="post" action="{{ url_for('provider.save_prompt', provider_key=provider.key) }}" class="mt-4 space-y-3">
-          <input name="title" required placeholder="Title" class="w-full border border-zinc-300 px-3 py-2">
-          <input name="description" placeholder="Description" class="w-full border border-zinc-300 px-3 py-2">
-          <textarea name="prompt_text" required rows="5" placeholder="Prompt text used as instructions" class="w-full border border-zinc-300 px-3 py-2"></textarea>
-          <button class="border border-emerald-700 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">Save for later</button>
-        </form>
-      </section>
       <section class="border border-zinc-200 bg-white p-5">
         <h2 class="text-lg font-semibold">Readiness</h2>
         <dl class="mt-3 space-y-2 text-sm">
@@ -166,6 +246,27 @@
         </dl>
       </section>
     </aside>
+  </div>
+
+  <div
+    x-data="{ open: false }"
+    @open-add-prompt.window="open = true"
+    x-show="open"
+    x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 p-4"
+  >
+    <div class="w-full max-w-xl border border-zinc-200 bg-white p-5 shadow-xl" @click.outside="open = false">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 class="text-xl font-semibold">Add prompt</h2>
+        <button type="button" @click="open = false" class="border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Close</button>
+      </div>
+      <form method="post" action="{{ url_for('provider.save_prompt', provider_key=provider.key) }}" class="space-y-3">
+        <input name="title" required placeholder="Title" class="w-full border border-zinc-300 px-3 py-2">
+        <input name="description" placeholder="Description" class="w-full border border-zinc-300 px-3 py-2">
+        <textarea name="prompt_text" required rows="7" placeholder="Prompt text used as instructions" class="w-full border border-zinc-300 px-3 py-2"></textarea>
+        <button class="bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">Save prompt</button>
+      </form>
+    </div>
   </div>
 
   {% if estimated_input_tokens is not none %}

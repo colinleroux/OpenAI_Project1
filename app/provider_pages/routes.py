@@ -44,6 +44,7 @@ def _render_provider(provider_key: str, **overrides):
         "user_text": "",
         "response_text": "",
         "response_id": "",
+        "actual_usage": None,
         "estimated_input_tokens": None,
         "pending_log_id": None,
         "pending_attachment_paths": [],
@@ -176,6 +177,7 @@ def send(provider_key):
         response_text = response.text
         response_id = response.raw_id or ""
         _update_log_from_response(log, response)
+        actual_usage = response.usage or {}
     except ProviderNotReadyError as exc:
         log.status = "failed"
         log.error_message = str(exc)
@@ -194,6 +196,7 @@ def send(provider_key):
         user_text=user_text,
         response_text=response_text,
         response_id=response_id,
+        actual_usage=actual_usage if "actual_usage" in locals() else None,
     )
 
 
