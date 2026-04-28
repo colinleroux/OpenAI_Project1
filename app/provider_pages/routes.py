@@ -2,7 +2,7 @@ from flask import current_app, flash, redirect, render_template, request, url_fo
 
 from . import provider_bp
 from ..extensions import db
-from ..models import ProviderConfig, RequestLog, SavedModel, SavedPrompt
+from ..models import ProviderConfig, RequestLog, SavedModel, SavedPrompt, SavedRequestText
 from ..providers import get_provider, list_providers
 from ..services.attachments import load_saved_attachments, save_request_attachments
 from ..services.llm import LlmRequest, ProviderNotReadyError, count_input_tokens, send_llm_request
@@ -28,6 +28,18 @@ def _render_provider(provider_key: str, **overrides):
     prompts = SavedPrompt.query.order_by(SavedPrompt.title.asc()).all()
     models = SavedModel.query.filter_by(provider_key=provider_key).order_by(SavedModel.name.asc()).all()
     logs = RequestLog.query.filter_by(provider_key=provider_key).order_by(RequestLog.created_at.desc()).limit(50).all()
+    request_texts = (
+        SavedRequestText.query.filter_by(provider_key=provider_key)
+        .order_by(SavedRequestText.created_at.desc())
+        .all()
+    )
+    selected_request_text = None
+    request_text_id = request.args.get("request_text_id", type=int)
+    if request_text_id:
+        selected_request_text = SavedRequestText.query.filter_by(
+            id=request_text_id,
+            provider_key=provider_key,
+        ).first()
     if config.default_model and config.default_model.provider_key != provider_key:
         config.default_model_id = None
         db.session.commit()
@@ -41,7 +53,7 @@ def _render_provider(provider_key: str, **overrides):
         "active_tab": request.args.get("tab", "playground"),
         "selected_prompt_id": request.args.get("prompt_id", type=int),
         "selected_model_id": request.args.get("model_id", type=int) or config.default_model_id,
-        "user_text": "",
+        "user_text": selected_request_text.request_text if selected_request_text else request.args.get("user_text", ""),
         "response_text": "",
         "response_id": "",
         "actual_usage": None,
@@ -49,6 +61,7 @@ def _render_provider(provider_key: str, **overrides):
         "pending_log_id": None,
         "pending_attachment_paths": [],
         "logs": logs,
+        "request_texts": request_texts,
     }
     context.update(overrides)
     return render_template("providers/show.html", **context)
@@ -230,6 +243,57 @@ def update_prompt(provider_key, prompt_id):
     db.session.commit()
     flash("Prompt updated.")
     return redirect(url_for("provider.show", provider_key=provider_key, prompt_id=prompt.id))
+
+
+@provider_bp.post("/<provider_key>/request-texts")
+def save_request_text(provider_key):
+    provider = get_provider(provider_key)
+    if provider is None:
+        return redirect(url_for("main.home"))
+
+    request_text = request.form["request_text"].strip()
+    if not request_text:
+        flash("Enter request text before saving.")
+        return redirect(url_for("provider.show", provider_key=provider_key))
+
+    saved = SavedRequestText(
+        provider_key=provider_key,
+        title=request.form["title"].strip(),
+        description=request.form.get("description", "").strip(),
+        request_text=request_text,
+    )
+    db.session.add(saved)
+    db.session.commit()
+    flash("Request text saved.")
+    return redirect(url_for("provider.show", provider_key=provider_key, request_text_id=saved.id))
+
+
+@provider_bp.post("/<provider_key>/request-texts/<int:request_text_id>")
+def update_request_text(provider_key, request_text_id):
+    provider = get_provider(provider_key)
+    if provider is None:
+        return redirect(url_for("main.home"))
+
+    saved = SavedRequestText.query.filter_by(id=request_text_id, provider_key=provider_key).first_or_404()
+    saved.title = request.form["title"].strip()
+    saved.description = request.form.get("description", "").strip()
+    saved.request_text = request.form["request_text"].strip()
+    db.session.commit()
+    flash("Request text updated.")
+    return redirect(url_for("provider.show", provider_key=provider_key, tab="request-texts"))
+
+
+@provider_bp.post("/<provider_key>/request-texts/<int:request_text_id>/delete")
+def delete_request_text(provider_key, request_text_id):
+    provider = get_provider(provider_key)
+    if provider is None:
+        return redirect(url_for("main.home"))
+
+    saved = SavedRequestText.query.filter_by(id=request_text_id, provider_key=provider_key).first_or_404()
+    db.session.delete(saved)
+    db.session.commit()
+    flash("Request text deleted.")
+    return redirect(url_for("provider.show", provider_key=provider_key, tab="request-texts"))
 
 
 def _create_request_log(

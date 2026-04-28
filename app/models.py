@@ -17,6 +17,18 @@ class SavedPrompt(db.Model):
         return f"<SavedPrompt {self.title!r}>"
 
 
+class SavedRequestText(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    provider_key = db.Column(db.String(40), nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    request_text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    def __repr__(self):
+        return f"<SavedRequestText {self.provider_key!r}:{self.title!r}>"
+
+
 class SavedModel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     provider_key = db.Column(db.String(40), nullable=False, default="openai")
